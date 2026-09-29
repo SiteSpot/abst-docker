@@ -1,0 +1,135 @@
+#!/bin/bash
+# First-boot (and every-boot) setup, run in the background by
+# absplittest-entrypoint:
+#   1. wait for wp-config.php and the database
+#   2. sync the bundled plugin into wp-content/plugins
+#   3. install WordPress on the first boot
+#   4. activate the plugin
+#   5. run `wp absplittest provision` whenever ABST_DOMAIN / ABST_LICENCE /
+#      ABST_JOURNEYS / ABST_URL change, saving its output to /var/lib/absplittest,
+#      and regenerate the embed script
+#   6. touch /var/lib/absplittest/ready
+#
+# Environment:
+#   ABST_URL             public URL of this server, e.g. https://abst.example.com (required)
+#   ABST_DOMAIN          the customer's site to test, e.g. customer.com
+#   ABST_LICENCE         AB Split Test licence key
+#   ABST_JOURNEYS        1 to enable heatmaps / page analytics / session replays
+#   ABST_ADMIN_USER      WordPress admin login (default: admin)
+#   ABST_ADMIN_PASSWORD  WordPress admin password (generated and logged if empty)
+#   ABST_ADMIN_EMAIL     WordPress admin email (default: admin@example.com)
+#   ABST_SITE_TITLE      WordPress site title (default: AB Split Test)
+set -uo pipefail
+
+source /usr/local/bin/abst
+
+STATE_DIR=/var/lib/absplittest
+PLUGIN_SRC=/opt/absplittest
+PLUGIN_DST=/var/www/html/wp-content/plugins/absplittest
+
+log() { echo "[absplittest] $*"; }
+fail() { echo "[absplittest] ERROR: $*" >&2; exit 1; }
+
+plugin_version() {
+	sed -n 's/^[ *]*Version:[[:space:]]*//p' "$1/bt-bb-ab.php" 2>/dev/null | head -n 1 | tr -d '\r'
+}
+
+[ -n "${ABST_URL:-}" ] || fail "ABST_URL is not set (the public URL of this server, e.g. https://abst.example.com)."
+
+# 1. The official entrypoint writes wp-config.php once the WordPress files are in place.
+for _ in $(seq 1 180); do
+	[ -f /var/www/html/wp-config.php ] && break
+	sleep 1
+done
+[ -f /var/www/html/wp-config.php ] || fail "wp-config.php was not created."
+
+db_ready() {
+	php -r '
+		$host = getenv("WORDPRESS_DB_HOST") ?: "mysql";
+		$port = 3306;
+		if (preg_match("/^(.*):(\d+)$/", $host, $m)) { $host = $m[1]; $port = (int) $m[2]; }
+		mysqli_report(MYSQLI_REPORT_OFF);
+		$db = @mysqli_connect($host, getenv("WORDPRESS_DB_USER") ?: "root", getenv("WORDPRESS_DB_PASSWORD") ?: "", getenv("WORDPRESS_DB_NAME") ?: "wordpress", $port);
+		exit($db ? 0 : 1);
+	' >/dev/null 2>&1
+}
+for _ in $(seq 1 120); do
+	db_ready && break
+	sleep 2
+done
+db_ready || fail "could not connect to the database at ${WORDPRESS_DB_HOST:-mysql}."
+
+# 2. Sync the plugin from the image, unless the in-app updater has already
+# installed a newer version than the one this image ships.
+image_version=$(plugin_version "$PLUGIN_SRC")
+installed_version=$(plugin_version "$PLUGIN_DST")
+if [ -n "$installed_version" ] && php -r 'exit(version_compare($argv[1], $argv[2], ">") ? 0 : 1);' "$installed_version" "$image_version"; then
+	log "Keeping installed plugin $installed_version (newer than image's $image_version)."
+else
+	log "Installing plugin $image_version from the image."
+	rm -rf "$PLUGIN_DST.tmp"
+	cp -a "$PLUGIN_SRC" "$PLUGIN_DST.tmp"
+	chown -R www-data:www-data "$PLUGIN_DST.tmp"
+	rm -rf "$PLUGIN_DST"
+	mv "$PLUGIN_DST.tmp" "$PLUGIN_DST"
+fi
+
+# 3. Install WordPress on the first boot.
+if ! wp core is-installed >/dev/null 2>&1; then
+	admin_user=${ABST_ADMIN_USER:-admin}
+	admin_password=${ABST_ADMIN_PASSWORD:-}
+	generated=0
+	if [ -z "$admin_password" ]; then
+		admin_password=$(php -r 'echo bin2hex(random_bytes(12));')
+		generated=1
+	fi
+	log "Installing WordPress at $ABST_URL"
+	wp core install \
+		--url="$ABST_URL" \
+		--title="${ABST_SITE_TITLE:-AB Split Test}" \
+		--admin_user="$admin_user" \
+		--admin_password="$admin_password" \
+		--admin_email="${ABST_ADMIN_EMAIL:-admin@example.com}" \
+		--skip-email || fail "wp core install failed."
+	# A headless test server shouldn't be indexed, and the REST endpoints the
+	# embed calls want pretty permalinks.
+	wp option update blog_public 0 >/dev/null
+	wp rewrite structure '/%postname%/' --hard >/dev/null
+	if [ "$generated" = 1 ]; then
+		log "Generated WordPress admin login: $admin_user / $admin_password (shown once - change it after signing in)"
+	fi
+fi
+
+# 4. Activate the plugin.
+if ! wp plugin is-active absplittest >/dev/null 2>&1; then
+	wp plugin activate absplittest || fail "could not activate the plugin."
+fi
+
+# 5. Provision for the customer's domain when the inputs change. Provisioning
+# is idempotent, but re-running it on every boot would undo site-mode changes
+# made later in the admin, so only do it when the environment asks for
+# something new.
+if [ -n "${ABST_DOMAIN:-}" ]; then
+	fingerprint=$(printf '%s|%s|%s|%s' "$ABST_DOMAIN" "${ABST_LICENCE:-}" "${ABST_JOURNEYS:-}" "$ABST_URL" | sha256sum | cut -d' ' -f1)
+	if [ "$(cat "$STATE_DIR/provisioned" 2>/dev/null)" != "$fingerprint" ]; then
+		log "Provisioning for $ABST_DOMAIN"
+		if abst_provision > "$STATE_DIR/provision.json.tmp"; then
+			mv "$STATE_DIR/provision.json.tmp" "$STATE_DIR/provision.json"
+			chmod 600 "$STATE_DIR/provision.json"
+			echo "$fingerprint" > "$STATE_DIR/provisioned"
+			cat "$STATE_DIR/provision.json"
+		else
+			rm -f "$STATE_DIR/provision.json.tmp"
+			fail "provisioning failed (see the output above)."
+		fi
+	else
+		# Provisioning rebuilds the embed; on other boots rebuild it anyway so it
+		# matches the plugin code in this image.
+		wp eval 'global $btab; if (is_object($btab)) { $btab->generate_embed_script(); }' || log "WARNING: could not regenerate the embed script."
+	fi
+else
+	log "ABST_DOMAIN is not set - skipping provisioning. Set it, or run: abst provision --domain=customer.com"
+fi
+
+touch "$STATE_DIR/ready"
+log "Ready: $ABST_URL/wp-admin/ (run 'abst info' in the container for the embed snippet)"

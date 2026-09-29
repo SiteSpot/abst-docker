@@ -1,0 +1,15 @@
+#!/bin/bash
+# Container entrypoint: start first-boot setup in the background, then hand off
+# to the official WordPress entrypoint (which writes wp-config.php and starts
+# Apache). Setup waits for wp-config.php and the database before it runs.
+set -euo pipefail
+
+mkdir -p /var/lib/absplittest
+chown www-data:www-data /var/lib/absplittest
+rm -f /var/lib/absplittest/ready
+
+if [ "${1:-}" = "apache2-foreground" ]; then
+	absplittest-setup &
+fi
+
+exec docker-entrypoint.sh "$@"

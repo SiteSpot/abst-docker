@@ -1,0 +1,68 @@
+#!/bin/bash
+# AB Split Test helper inside the container. Runs WP-CLI as www-data so files
+# it writes (the embed script in wp-content/uploads) stay writable by Apache.
+#
+#   abst info                  print the embed snippet and URLs from provisioning
+#   abst editor-link [user]    mint a fresh Magic editor link (default user: admin)
+#   abst wp <args>             any WP-CLI command, e.g. abst wp plugin list
+#   abst <command> <args>      any `wp absplittest` command, e.g.
+#                                abst list_tests
+#                                abst get_results --id=12
+#                                abst provision --domain=other.com
+#
+# From the host: docker compose exec app abst info
+
+wp() {
+	runuser -u www-data -- env HOME=/tmp WP_CLI_CACHE_DIR=/tmp/wp-cli-cache \
+		/usr/local/bin/wp --path=/var/www/html "$@"
+}
+
+abst_provision() {
+	local args=(--domain="$ABST_DOMAIN" --editor-user="${ABST_ADMIN_USER:-admin}" --format=json)
+	[ -n "${ABST_LICENCE:-}" ] && args+=(--licence="$ABST_LICENCE")
+	case "${ABST_JOURNEYS:-}" in 1|true|yes|on) args+=(--external-journeys) ;; esac
+	wp absplittest provision "${args[@]}" --quiet
+}
+
+abst_main() {
+	local state=/var/lib/absplittest
+	case "${1:-}" in
+		""|-h|--help|help)
+			sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+			;;
+		info)
+			if [ ! -f "$state/provision.json" ]; then
+				echo "Not provisioned yet. Set ABST_DOMAIN and restart, or run: abst provision --domain=customer.com" >&2
+				return 1
+			fi
+			cat "$state/provision.json"
+			;;
+		editor-link)
+			local who=${2:-${ABST_ADMIN_USER:-admin}}
+			wp eval-file - "$who" <<'PHP'
+<?php
+				global $btab;
+				$who = $args[0];
+				$user = is_numeric($who) ? get_user_by("id", (int) $who) : (get_user_by("login", $who) ?: get_user_by("email", $who));
+				if (!$user) { WP_CLI::error("User not found: " . $who); }
+				$origin = (string) ab_get_admin_setting("abst_primary_external_domain");
+				if ($origin === "") { WP_CLI::error("No primary external domain yet - run provisioning first."); }
+				$link = $btab->create_editor_launch_for_user(rtrim($origin, "/") . "/", $user->ID);
+				if (is_wp_error($link)) { WP_CLI::error($link->get_error_message()); }
+				WP_CLI::line($link);
+PHP
+			;;
+		wp)
+			shift
+			wp "$@"
+			;;
+		*)
+			wp absplittest "$@"
+			;;
+	esac
+}
+
+# Sourced by absplittest-setup for the helpers above; run directly as a command.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+	abst_main "$@"
+fi

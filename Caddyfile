@@ -1,0 +1,8 @@
+# HTTPS front for the split-test server (docker compose --profile tls).
+# Caddy fetches and renews a Let's Encrypt certificate for ABST_HOSTNAME
+# automatically; its DNS A/AAAA record must point at this machine and ports
+# 80 and 443 must be open.
+{$ABST_HOSTNAME} {
+	encode zstd gzip
+	reverse_proxy app:80
+}

@@ -1,0 +1,77 @@
+# AB Split Test split-test server: WordPress + plugin (app), MariaDB (db) and,
+# with the "tls" profile, Caddy for automatic HTTPS.
+#
+# Use docker/install.sh to create docker/.env and bring this up. By hand:
+#   cp docker/.env.example docker/.env   # then fill it in
+#   docker compose -f docker/docker-compose.yml up -d --build
+name: absplittest
+
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: ${ABST_DB_PASSWORD:?set ABST_DB_PASSWORD in docker/.env (install.sh does this)}
+      MARIADB_ROOT_PASSWORD: ${ABST_DB_ROOT_PASSWORD:?set ABST_DB_ROOT_PASSWORD in docker/.env (install.sh does this)}
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: absplittest:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${ABST_DB_PASSWORD}
+      ABST_URL: ${ABST_URL:-http://localhost:8080}
+      ABST_DOMAIN: ${ABST_DOMAIN:-}
+      ABST_LICENCE: ${ABST_LICENCE:-}
+      ABST_JOURNEYS: ${ABST_JOURNEYS:-}
+      ABST_ADMIN_USER: ${ABST_ADMIN_USER:-admin}
+      ABST_ADMIN_PASSWORD: ${ABST_ADMIN_PASSWORD:-}
+      ABST_ADMIN_EMAIL: ${ABST_ADMIN_EMAIL:-admin@example.com}
+    ports:
+      # Loopback only by default: in production Caddy (or your own proxy)
+      # terminates HTTPS in front of this. Set ABST_BIND=0.0.0.0 to expose it.
+      - "${ABST_BIND:-127.0.0.1}:${ABST_HTTP_PORT:-8080}:80"
+    volumes:
+      - wordpress:/var/www/html
+      - state:/var/lib/absplittest
+
+  caddy:
+    image: caddy:2
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      ABST_HOSTNAME: ${ABST_HOSTNAME:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db:
+  wordpress:
+  state:
+  caddy_data:
+  caddy_config:
