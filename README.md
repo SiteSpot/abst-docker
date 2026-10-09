@@ -1,18 +1,22 @@
 # AB Split Test server (Docker)
 
-Run AB Split Test as a split-test server for **any website**, not just
-WordPress sites, with one command. You get WordPress, the plugin and MariaDB,
-set up headless (in "external-first" mode) for one customer domain. WordPress
-is only the admin and storage layer. The customer's site just loads one
-`<script>`.
+Run [AB Split Test](https://absplittest.com) as a split-test server for
+**any website**, not just WordPress sites, with one command. You get
+WordPress, the plugin and MariaDB, set up headless (in "external-first" mode)
+for one customer domain. WordPress is only the admin and storage layer. The
+customer's site just loads one `<script>`.
+
+The plugin itself is not in this repository: `install.sh` downloads the
+current release from absplittest.com with your licence key (or takes a zip or
+a plugin checkout, see below).
 
 ## Quick start
 
 On any Linux server with Docker, pointing a DNS name at it:
 
 ```bash
-git clone <this repo> absplittest && cd absplittest
-./docker/install.sh --domain customer.com --hostname abst.example.com --licence YOUR-KEY
+git clone https://github.com/SiteSpot/abst-docker.git && cd abst-docker
+./install.sh --domain customer.com --hostname abst.example.com --licence YOUR-KEY
 ```
 
 It prints:
@@ -24,14 +28,19 @@ It prints:
 HTTPS is automatic: Caddy gets a Let's Encrypt certificate for `--hostname`.
 Ports 80 and 443 must be open, and the DNS record must already point at the server.
 
+The licence is activated for the server's URL before the download, exactly as
+the plugin's own updater does, so this does not use an extra site on the licence.
+
 ### Other ways to run it
 
 | Situation | Command |
 |---|---|
-| Try it locally | `./docker/install.sh --domain customer.com` → `http://localhost:8080` |
-| You already have an HTTPS proxy / load balancer | `./docker/install.sh --domain customer.com --url https://abst.example.com --bind 0.0.0.0` |
+| Try it locally | `./install.sh --domain customer.com --licence KEY` → `http://localhost:8080` |
+| You already have an HTTPS proxy / load balancer | `./install.sh --domain customer.com --url https://abst.example.com --bind 0.0.0.0 --licence KEY` |
 | Heatmaps, page analytics, session replays | add `--journeys` |
-| Container platforms (no install.sh) | run the image with the env vars in [`.env.example`](.env.example) plus `WORDPRESS_DB_*` for your MySQL/MariaDB |
+| You have the plugin zip (My Account → Downloads) | `--plugin-zip bt-bb-ab.zip` instead of `--licence` |
+| You have a checkout of the plugin repository | `--plugin-dir ../ABSPLITTEST` |
+| Container platforms (no install.sh) | put the plugin folder in `./plugin`, build the image, and run it with the env vars in [`.env.example`](.env.example) plus `WORDPRESS_DB_*` for your MySQL/MariaDB |
 
 **Local mode is for trying things out only.** Chrome asks visitors for
 permission before a public HTTPS site can load a script from `localhost`
@@ -39,7 +48,7 @@ permission before a public HTTPS site can load a script from `localhost`
 
 ## Everyday commands
 
-Run these from the `docker/` directory:
+Run these from this directory:
 
 ```bash
 docker compose exec app abst info            # embed snippet, URLs, analyzer key
@@ -52,20 +61,22 @@ docker compose logs -f app
 
 ## Changing things
 
-Re-run `install.sh` with new options. Passwords in `docker/.env` are kept, and
-the server re-provisions itself when the domain, licence, journeys flag or URL
+Re-run `install.sh` with new options. Passwords in `.env` are kept, and the
+server re-provisions itself when the domain, licence, journeys flag or URL
 change. The WordPress admin password is only used at first install. After
 that, change it in the admin.
 
 ## Upgrading
 
 ```bash
-git pull && ./docker/install.sh --domain customer.com --hostname abst.example.com
+git pull && ./install.sh --upgrade
 ```
 
-Each boot copies the plugin from the image into WordPress. The one exception
-is when the plugin's own updater has already installed a newer version; then
-that version is kept. The embed script is rebuilt on every boot.
+`--upgrade` downloads the latest plugin release with the licence in `.env`
+and rebuilds the image. Each boot copies the plugin from the image into
+WordPress. The one exception is when the plugin's own updater has already
+installed a newer version; then that version is kept. The embed script is
+rebuilt on every boot.
 
 ## Data and backups
 

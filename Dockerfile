@@ -1,9 +1,12 @@
 # AB Split Test as a self-contained split-test server: WordPress + the plugin,
-# set up headless (external-first mode) on first boot. Build from the repo root:
+# set up headless (external-first mode) on first boot.
 #
-#   docker build -f docker/Dockerfile -t absplittest .
+# The plugin folder is expected at ./plugin (install.sh downloads it with your
+# licence key, or takes --plugin-zip / --plugin-dir). Build from this directory:
 #
-# Normally you don't build this by hand - docker/install.sh drives docker compose.
+#   docker build -t absplittest .
+#
+# Normally you don't build this by hand - install.sh drives docker compose.
 FROM wordpress:6-php8.3-apache
 
 # WP-CLI is a single phar; take it from the official CLI image.
@@ -24,10 +27,9 @@ ENV WORDPRESS_CONFIG_EXTRA="if (getenv_docker('ABST_URL', '')) { define('WP_HOME
 
 # The plugin ships inside the image and is synced into wp-content on each boot
 # (see absplittest-setup), so rebuilding the image upgrades it.
-COPY . /opt/absplittest
-COPY docker/bin/ /usr/local/bin/
+COPY plugin/ /opt/absplittest
+COPY bin/ /usr/local/bin/
 RUN chmod 0755 /usr/local/bin/absplittest-entrypoint /usr/local/bin/absplittest-setup /usr/local/bin/abst \
- && rm -rf /opt/absplittest/docker \
  && mkdir -p /var/lib/absplittest \
  && chown www-data:www-data /var/lib/absplittest
 

@@ -1,9 +1,9 @@
 # AB Split Test split-test server: WordPress + plugin (app), MariaDB (db) and,
 # with the "tls" profile, Caddy for automatic HTTPS.
 #
-# Use docker/install.sh to create docker/.env and bring this up. By hand:
-#   cp docker/.env.example docker/.env   # then fill it in
-#   docker compose -f docker/docker-compose.yml up -d --build
+# Use ./install.sh to fetch the plugin, write .env and bring this up. By hand:
+#   cp .env.example .env            # then fill it in, and put the plugin in ./plugin
+#   docker compose up -d --build
 name: absplittest
 
 services:
@@ -13,8 +13,8 @@ services:
     environment:
       MARIADB_DATABASE: wordpress
       MARIADB_USER: wordpress
-      MARIADB_PASSWORD: ${ABST_DB_PASSWORD:?set ABST_DB_PASSWORD in docker/.env (install.sh does this)}
-      MARIADB_ROOT_PASSWORD: ${ABST_DB_ROOT_PASSWORD:?set ABST_DB_ROOT_PASSWORD in docker/.env (install.sh does this)}
+      MARIADB_PASSWORD: ${ABST_DB_PASSWORD:?set ABST_DB_PASSWORD in .env (install.sh does this)}
+      MARIADB_ROOT_PASSWORD: ${ABST_DB_ROOT_PASSWORD:?set ABST_DB_ROOT_PASSWORD in .env (install.sh does this)}
     volumes:
       - db:/var/lib/mysql
     healthcheck:
@@ -25,8 +25,8 @@ services:
 
   app:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     image: absplittest:local
     restart: unless-stopped
     depends_on:

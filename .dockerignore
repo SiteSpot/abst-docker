@@ -1,0 +1,15 @@
+.git
+.env
+.env.example
+README.md
+install.sh
+docker-compose.yml
+Caddyfile
+*.zip
+plugin/.git
+plugin/.github
+plugin/.claude
+plugin/tests
+plugin/docs
+plugin/node_modules
+plugin/.wp-test-core

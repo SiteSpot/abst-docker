@@ -1,0 +1,7 @@
+# Secrets written by install.sh
+.env
+
+# The plugin release install.sh puts here (downloaded, or from --plugin-zip / --plugin-dir)
+plugin/
+plugin.tmp/
+*.zip
