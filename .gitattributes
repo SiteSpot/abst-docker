@@ -1,0 +1,2 @@
+# Shell scripts and config must stay LF on every platform (Docker runs them on Linux).
+* text=auto eol=lf
