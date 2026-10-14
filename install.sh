@@ -14,7 +14,8 @@
 #   # Let AI assistants (Claude, Cursor...) manage tests over MCP:
 #   ./install.sh --domain customer.com --hostname abst.example.com --licence KEY --mcp
 #
-#   # Upgrade to the latest plugin release and rebuild:
+#   # Upgrade to the latest plugin release, refresh the base images and rebuild
+#   # (WordPress, plugins and themes also update themselves unless --no-auto-updates):
 #   ./install.sh --upgrade
 #
 # The plugin itself is not in this repository. With --licence it is downloaded
@@ -39,9 +40,10 @@ Usage: ./install.sh --domain <customer-site> [options]
   --licence <key>        AB Split Test licence key (also used to download the plugin)
   --plugin-zip <file>    Use this plugin zip instead of downloading one
   --plugin-dir <dir>     Use this plugin checkout instead of downloading one
-  --upgrade              Download the latest plugin release again and rebuild
+  --upgrade              Download the latest plugin release, pull fresh base images and rebuild
   --journeys             Enable heatmaps, page analytics and session replays
   --mcp                  Set up MCP so AI assistants can manage tests (needs HTTPS)
+  --no-auto-updates      Don't switch on auto-updates for WordPress, plugins and themes
   --port <port>          Host port for WordPress (default 8080)
   --bind <addr>          Host address WordPress listens on (default 127.0.0.1)
   --admin-user <login>   WordPress admin login (default admin)
@@ -54,7 +56,7 @@ cd "$(dirname "$0")"
 ENV_FILE=.env
 PLUGIN_DIR=plugin
 
-domain="" hostname="" url="" licence="" journeys="" mcp="" port="" bind="" admin_user="" admin_email=""
+domain="" hostname="" url="" licence="" journeys="" mcp="" auto_updates="" port="" bind="" admin_user="" admin_email=""
 plugin_zip="" plugin_src="" upgrade=0
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -67,6 +69,8 @@ while [ $# -gt 0 ]; do
 		--upgrade) upgrade=1; shift ;;
 		--journeys) journeys=1; shift ;;
 		--mcp) mcp=1; shift ;;
+		--auto-updates) auto_updates=1; shift ;;
+		--no-auto-updates) auto_updates=0; shift ;;
 		--port) port=${2:?}; shift 2 ;;
 		--bind) bind=${2:?}; shift 2 ;;
 		--admin-user) admin_user=${2:?}; shift 2 ;;
@@ -107,6 +111,7 @@ admin_password=$(existing ABST_ADMIN_PASSWORD); admin_password=${admin_password:
 licence=${licence:-$(existing ABST_LICENCE)}
 journeys=${journeys:-$(existing ABST_JOURNEYS)}
 mcp=${mcp:-$(existing ABST_MCP)}
+auto_updates=${auto_updates:-$(existing ABST_AUTO_UPDATES)}; auto_updates=${auto_updates:-1}
 admin_user=${admin_user:-$(existing ABST_ADMIN_USER)}; admin_user=${admin_user:-admin}
 admin_email=${admin_email:-$(existing ABST_ADMIN_EMAIL)}; admin_email=${admin_email:-admin@example.com}
 port=${port:-$(existing ABST_HTTP_PORT)}; port=${port:-8080}
@@ -223,6 +228,7 @@ ABST_DOMAIN=$domain
 ABST_LICENCE=$licence
 ABST_JOURNEYS=$journeys
 ABST_MCP=$mcp
+ABST_AUTO_UPDATES=$auto_updates
 ABST_URL=$url
 ABST_HOSTNAME=$hostname
 COMPOSE_PROFILES=$profiles
@@ -234,6 +240,14 @@ ABST_ADMIN_EMAIL=$admin_email
 ABST_DB_PASSWORD=$db_password
 ABST_DB_ROOT_PASSWORD=$db_root_password
 EOF
+
+if [ "$upgrade" = 1 ]; then
+	# Newer PHP/Apache, MariaDB and Caddy images. WordPress itself lives in a
+	# volume and updates in place, so this doesn't touch your data.
+	echo "Pulling the latest base images ..."
+	if [ "$profiles" = tls ]; then docker compose pull db caddy; else docker compose pull db; fi
+	docker compose build --pull
+fi
 
 echo "Building and starting AB Split Test at $url ..."
 docker compose up -d --build --remove-orphans
@@ -278,7 +292,7 @@ Useful commands (run from this directory):
   docker compose exec app abst mcp            # MCP config for AI assistants (with --mcp)
   docker compose exec app abst list_tests     # any 'wp absplittest' command
   docker compose logs -f app                  # server logs
-  ./install.sh --upgrade                      # latest plugin release, rebuilt
+  ./install.sh --upgrade                      # latest plugin release and base images, rebuilt
 EOF
 if [ -n "$hostname" ]; then
 	echo

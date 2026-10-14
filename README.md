@@ -39,6 +39,7 @@ the plugin's own updater does, so this does not use an extra site on the licence
 | You already have an HTTPS proxy / load balancer | `./install.sh --domain customer.com --url https://abst.example.com --bind 0.0.0.0 --licence KEY` |
 | Heatmaps, page analytics, session replays | add `--journeys` |
 | Let AI assistants (Claude, Cursor...) manage tests | add `--mcp` (needs HTTPS), see [AI assistants (MCP)](#ai-assistants-mcp) |
+| Manage WordPress and plugin updates yourself | add `--no-auto-updates` |
 | You have the plugin zip (My Account → Downloads) | `--plugin-zip bt-bb-ab.zip` instead of `--licence` |
 | You have a checkout of the plugin repository | `--plugin-dir ../ABSPLITTEST` |
 | Container platforms (no install.sh) | put the plugin folder in `./plugin`, build the image, and run it with the env vars in [`.env.example`](.env.example) plus `WORDPRESS_DB_*` for your MySQL/MariaDB |
@@ -95,12 +96,19 @@ that, change it in the admin.
 
 ## Upgrading
 
+WordPress core (major releases too), every plugin (AB Split Test included)
+and every theme update themselves: auto-updates are switched on at first boot.
+Switch any of them off in the admin and it stays off, or pass
+`--no-auto-updates` to leave them all alone.
+
+For the server software underneath (PHP/Apache, MariaDB, Caddy):
+
 ```bash
 git pull && ./install.sh --upgrade
 ```
 
-`--upgrade` downloads the latest plugin release with the licence in `.env`
-and rebuilds the image. Each boot copies the plugin from the image into
+`--upgrade` downloads the latest plugin release with the licence in `.env`,
+pulls fresh base images and rebuilds the image. Each boot copies the plugin from the image into
 WordPress. The one exception is when the plugin's own updater has already
 installed a newer version; then that version is kept. The embed script is
 rebuilt on every boot.

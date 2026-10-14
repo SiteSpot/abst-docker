@@ -9,7 +9,8 @@
 #      ABST_JOURNEYS / ABST_URL change, saving its output to /var/lib/absplittest,
 #      and regenerate the embed script
 #   6. with ABST_MCP, set up MCP for AI assistants (abst mcp prints the config)
-#   7. touch /var/lib/absplittest/ready
+#   7. switch on auto-updates for core, plugins and themes (once)
+#   8. touch /var/lib/absplittest/ready
 #
 # Environment:
 #   ABST_URL             public URL of this server, e.g. https://abst.example.com (required)
@@ -17,6 +18,7 @@
 #   ABST_LICENCE         AB Split Test licence key
 #   ABST_JOURNEYS        1 to enable heatmaps / page analytics / session replays
 #   ABST_MCP             1 to install the MCP Adapter and an application password for AI assistants
+#   ABST_AUTO_UPDATES    0 to leave WordPress, plugin and theme auto-updates alone (default 1)
 #   ABST_ADMIN_USER      WordPress admin login (default: admin)
 #   ABST_ADMIN_PASSWORD  WordPress admin password (generated and logged if empty)
 #   ABST_ADMIN_EMAIL     WordPress admin email (default: admin@example.com)
@@ -137,6 +139,16 @@ fi
 case "${ABST_MCP:-}" in
 	1|true|yes|on) abst_mcp_setup || log "WARNING: MCP setup failed (see above). Retry with: abst mcp" ;;
 esac
+
+# 7. Auto-updates, switched on once so choices made later in the admin stick.
+if [ "${ABST_AUTO_UPDATES:-1}" != 0 ] && [ ! -f "$STATE_DIR/auto-updates" ]; then
+	if abst_auto_updates; then
+		touch "$STATE_DIR/auto-updates"
+		log "Auto-updates on for WordPress core, plugins and themes."
+	else
+		log "WARNING: could not switch on auto-updates."
+	fi
+fi
 
 touch "$STATE_DIR/ready"
 log "Ready: $ABST_URL/wp-admin/ (run 'abst info' in the container for the embed snippet)"

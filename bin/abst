@@ -25,6 +25,16 @@ abst_provision() {
 	wp absplittest provision "${args[@]}" --quiet
 }
 
+# Auto-updates for WordPress core (major releases too), every plugin and every
+# theme. absplittest-setup runs this once, so anything switched off later in the
+# admin stays off. AB Split Test's own updater takes part via the update cron.
+abst_auto_updates() {
+	wp option update auto_update_core_major enabled >/dev/null || return 1
+	# Both report an error when everything is already enabled; that's fine.
+	wp plugin auto-updates enable --all >/dev/null 2>&1 || true
+	wp theme auto-updates enable --all >/dev/null 2>&1 || true
+}
+
 MCP_ADAPTER_ZIP=${ABST_MCP_ADAPTER_ZIP:-https://github.com/WordPress/mcp-adapter/releases/latest/download/mcp-adapter.zip}
 
 # MCP for AI assistants: install the WordPress MCP Adapter (it exposes the
@@ -42,6 +52,7 @@ abst_mcp_setup() {
 	esac
 	if ! wp plugin is-installed mcp-adapter >/dev/null 2>&1; then
 		wp plugin install "$MCP_ADAPTER_ZIP" --activate || return 1
+		[ "${ABST_AUTO_UPDATES:-1}" != 0 ] && { wp plugin auto-updates enable mcp-adapter >/dev/null 2>&1 || true; }
 	elif ! wp plugin is-active mcp-adapter >/dev/null 2>&1; then
 		wp plugin activate mcp-adapter || return 1
 	fi
