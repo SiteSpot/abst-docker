@@ -8,13 +8,15 @@
 #   5. run `wp absplittest provision` whenever ABST_DOMAIN / ABST_LICENCE /
 #      ABST_JOURNEYS / ABST_URL change, saving its output to /var/lib/absplittest,
 #      and regenerate the embed script
-#   6. touch /var/lib/absplittest/ready
+#   6. with ABST_MCP, set up MCP for AI assistants (abst mcp prints the config)
+#   7. touch /var/lib/absplittest/ready
 #
 # Environment:
 #   ABST_URL             public URL of this server, e.g. https://abst.example.com (required)
 #   ABST_DOMAIN          the customer's site to test, e.g. customer.com
 #   ABST_LICENCE         AB Split Test licence key
 #   ABST_JOURNEYS        1 to enable heatmaps / page analytics / session replays
+#   ABST_MCP             1 to install the MCP Adapter and an application password for AI assistants
 #   ABST_ADMIN_USER      WordPress admin login (default: admin)
 #   ABST_ADMIN_PASSWORD  WordPress admin password (generated and logged if empty)
 #   ABST_ADMIN_EMAIL     WordPress admin email (default: admin@example.com)
@@ -130,6 +132,11 @@ if [ -n "${ABST_DOMAIN:-}" ]; then
 else
 	log "ABST_DOMAIN is not set - skipping provisioning. Set it, or run: abst provision --domain=customer.com"
 fi
+
+# 6. MCP for AI assistants. Idempotent: the password is only created once.
+case "${ABST_MCP:-}" in
+	1|true|yes|on) abst_mcp_setup || log "WARNING: MCP setup failed (see above). Retry with: abst mcp" ;;
+esac
 
 touch "$STATE_DIR/ready"
 log "Ready: $ABST_URL/wp-admin/ (run 'abst info' in the container for the embed snippet)"

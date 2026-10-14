@@ -4,6 +4,7 @@
 #
 #   abst info                  print the embed snippet and URLs from provisioning
 #   abst editor-link [user]    mint a fresh Magic editor link (default user: admin)
+#   abst mcp [--reset]         set up MCP for AI assistants and print their config
 #   abst wp <args>             any WP-CLI command, e.g. abst wp plugin list
 #   abst <command> <args>      any `wp absplittest` command, e.g.
 #                                abst list_tests
@@ -24,11 +25,77 @@ abst_provision() {
 	wp absplittest provision "${args[@]}" --quiet
 }
 
+MCP_ADAPTER_ZIP=${ABST_MCP_ADAPTER_ZIP:-https://github.com/WordPress/mcp-adapter/releases/latest/download/mcp-adapter.zip}
+
+# MCP for AI assistants: install the WordPress MCP Adapter (it exposes the
+# plugin's abilities as MCP tools) and give a dedicated user an application
+# password. The password is created once and kept in the state dir so
+# `abst mcp` can print it again; `abst mcp --reset` replaces it.
+abst_mcp_setup() {
+	local state=/var/lib/absplittest user=${ABST_MCP_USER:-abst-mcp} password
+	case "${ABST_URL:-}" in
+		https://*) ;;
+		*)
+			echo "MCP needs HTTPS: WordPress only accepts application passwords over https. Re-run install.sh with --hostname or --url https://..." >&2
+			return 1
+			;;
+	esac
+	if ! wp plugin is-installed mcp-adapter >/dev/null 2>&1; then
+		wp plugin install "$MCP_ADAPTER_ZIP" --activate || return 1
+	elif ! wp plugin is-active mcp-adapter >/dev/null 2>&1; then
+		wp plugin activate mcp-adapter || return 1
+	fi
+	[ -s "$state/mcp.env" ] && return 0
+	if ! wp user get "$user" --field=ID >/dev/null 2>&1; then
+		# The plugin's MCP tools need manage_options (filter abst_mcp_advanced_required_capability).
+		wp user create "$user" "$user@mcp.invalid" --role=administrator --display_name="AI assistant (MCP)" \
+			--user_pass="$(php -r 'echo bin2hex(random_bytes(16));')" --porcelain >/dev/null || return 1
+	fi
+	password=$(wp user application-password create "$user" "MCP (abst-docker)" --porcelain) || return 1
+	(umask 077; printf 'MCP_USER=%s\nMCP_PASSWORD=%s\n' "$user" "$password" > "$state/mcp.env")
+}
+
+abst_mcp_print() {
+	local state=/var/lib/absplittest user password endpoint
+	user=$(sed -n 's/^MCP_USER=//p' "$state/mcp.env")
+	password=$(sed -n 's/^MCP_PASSWORD=//p' "$state/mcp.env")
+	endpoint="${ABST_URL%/}/wp-json/mcp/mcp-adapter-default-server"
+	cat <<EOF
+MCP is ready. AI assistants connect as "$user":
+
+  Endpoint:  $endpoint
+  Username:  $user
+  Password:  $password
+
+Claude Code (run this on your own computer):
+
+  claude mcp add absplittest -e WP_API_URL=$endpoint -e WP_API_USERNAME=$user -e WP_API_PASSWORD=$password -- npx -y @automattic/mcp-wordpress-remote@latest
+
+Claude Desktop, Cursor, Windsurf, Cline (add to the client's MCP config; needs Node.js):
+
+{
+  "mcpServers": {
+    "absplittest": {
+      "command": "npx",
+      "args": ["-y", "@automattic/mcp-wordpress-remote@latest"],
+      "env": {
+        "WP_API_URL": "$endpoint",
+        "WP_API_USERNAME": "$user",
+        "WP_API_PASSWORD": "$password"
+      }
+    }
+  }
+}
+
+Revoke it in the admin (Users > $user > Application Passwords), or make a new one: abst mcp --reset
+EOF
+}
+
 abst_main() {
 	local state=/var/lib/absplittest
 	case "${1:-}" in
 		""|-h|--help|help)
-			sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+			sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
 			;;
 		info)
 			if [ ! -f "$state/provision.json" ]; then
@@ -51,6 +118,13 @@ abst_main() {
 				if (is_wp_error($link)) { WP_CLI::error($link->get_error_message()); }
 				WP_CLI::line($link);
 PHP
+			;;
+		mcp)
+			if [ "${2:-}" = "--reset" ] && [ -s "$state/mcp.env" ]; then
+				wp user application-password delete "$(sed -n 's/^MCP_USER=//p' "$state/mcp.env")" --all >/dev/null 2>&1 || true
+				rm -f "$state/mcp.env"
+			fi
+			abst_mcp_setup && abst_mcp_print
 			;;
 		wp)
 			shift

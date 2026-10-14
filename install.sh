@@ -11,6 +11,9 @@
 #   # Behind your own HTTPS proxy / load balancer:
 #   ./install.sh --domain customer.com --url https://abst.example.com --bind 0.0.0.0 --licence KEY
 #
+#   # Let AI assistants (Claude, Cursor...) manage tests over MCP:
+#   ./install.sh --domain customer.com --hostname abst.example.com --licence KEY --mcp
+#
 #   # Upgrade to the latest plugin release and rebuild:
 #   ./install.sh --upgrade
 #
@@ -38,6 +41,7 @@ Usage: ./install.sh --domain <customer-site> [options]
   --plugin-dir <dir>     Use this plugin checkout instead of downloading one
   --upgrade              Download the latest plugin release again and rebuild
   --journeys             Enable heatmaps, page analytics and session replays
+  --mcp                  Set up MCP so AI assistants can manage tests (needs HTTPS)
   --port <port>          Host port for WordPress (default 8080)
   --bind <addr>          Host address WordPress listens on (default 127.0.0.1)
   --admin-user <login>   WordPress admin login (default admin)
@@ -50,7 +54,7 @@ cd "$(dirname "$0")"
 ENV_FILE=.env
 PLUGIN_DIR=plugin
 
-domain="" hostname="" url="" licence="" journeys="" port="" bind="" admin_user="" admin_email=""
+domain="" hostname="" url="" licence="" journeys="" mcp="" port="" bind="" admin_user="" admin_email=""
 plugin_zip="" plugin_src="" upgrade=0
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -62,6 +66,7 @@ while [ $# -gt 0 ]; do
 		--plugin-dir) plugin_src=${2:?}; shift 2 ;;
 		--upgrade) upgrade=1; shift ;;
 		--journeys) journeys=1; shift ;;
+		--mcp) mcp=1; shift ;;
 		--port) port=${2:?}; shift 2 ;;
 		--bind) bind=${2:?}; shift 2 ;;
 		--admin-user) admin_user=${2:?}; shift 2 ;;
@@ -101,6 +106,7 @@ db_root_password=$(existing ABST_DB_ROOT_PASSWORD); db_root_password=${db_root_p
 admin_password=$(existing ABST_ADMIN_PASSWORD); admin_password=${admin_password:-$(secret)}
 licence=${licence:-$(existing ABST_LICENCE)}
 journeys=${journeys:-$(existing ABST_JOURNEYS)}
+mcp=${mcp:-$(existing ABST_MCP)}
 admin_user=${admin_user:-$(existing ABST_ADMIN_USER)}; admin_user=${admin_user:-admin}
 admin_email=${admin_email:-$(existing ABST_ADMIN_EMAIL)}; admin_email=${admin_email:-admin@example.com}
 port=${port:-$(existing ABST_HTTP_PORT)}; port=${port:-8080}
@@ -116,6 +122,10 @@ elif [ -z "$url" ]; then
 	url="http://localhost:$port"
 fi
 url=${url%/}
+if [ "$mcp" = 1 ] && [ "${url#https://}" = "$url" ]; then
+	echo "--mcp needs HTTPS (WordPress only accepts application passwords over https). Add --hostname, or --url https://..." >&2
+	exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # The plugin: ./plugin/ holds the plugin folder that goes into the image.
@@ -212,6 +222,7 @@ cat > "$ENV_FILE" <<EOF
 ABST_DOMAIN=$domain
 ABST_LICENCE=$licence
 ABST_JOURNEYS=$journeys
+ABST_MCP=$mcp
 ABST_URL=$url
 ABST_HOSTNAME=$hostname
 COMPOSE_PROFILES=$profiles
@@ -255,11 +266,16 @@ AB Split Test is running.
 Add this to every page on $domain, as high in <head> as possible:
 EOF
 docker compose exec -T app abst info
+if [ "$mcp" = 1 ]; then
+	echo
+	docker compose exec -T app abst mcp || echo "MCP setup did not finish. Retry with: docker compose exec app abst mcp" >&2
+fi
 cat <<EOF
 
 Useful commands (run from this directory):
   docker compose exec app abst info           # embed snippet and URLs again
   docker compose exec app abst editor-link    # fresh Magic editor link (expires in ~2h)
+  docker compose exec app abst mcp            # MCP config for AI assistants (with --mcp)
   docker compose exec app abst list_tests     # any 'wp absplittest' command
   docker compose logs -f app                  # server logs
   ./install.sh --upgrade                      # latest plugin release, rebuilt

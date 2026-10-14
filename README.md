@@ -38,6 +38,7 @@ the plugin's own updater does, so this does not use an extra site on the licence
 | Try it locally | `./install.sh --domain customer.com --licence KEY` → `http://localhost:8080` |
 | You already have an HTTPS proxy / load balancer | `./install.sh --domain customer.com --url https://abst.example.com --bind 0.0.0.0 --licence KEY` |
 | Heatmaps, page analytics, session replays | add `--journeys` |
+| Let AI assistants (Claude, Cursor...) manage tests | add `--mcp` (needs HTTPS), see [AI assistants (MCP)](#ai-assistants-mcp) |
 | You have the plugin zip (My Account → Downloads) | `--plugin-zip bt-bb-ab.zip` instead of `--licence` |
 | You have a checkout of the plugin repository | `--plugin-dir ../ABSPLITTEST` |
 | Container platforms (no install.sh) | put the plugin folder in `./plugin`, build the image, and run it with the env vars in [`.env.example`](.env.example) plus `WORDPRESS_DB_*` for your MySQL/MariaDB |
@@ -53,11 +54,37 @@ Run these from this directory:
 ```bash
 docker compose exec app abst info            # embed snippet, URLs, analyzer key
 docker compose exec app abst editor-link     # fresh Magic editor link (expires ~2h)
+docker compose exec app abst mcp             # MCP config for AI assistants (with --mcp)
 docker compose exec app abst list_tests      # any `wp absplittest` command…
 docker compose exec app abst get_results 12
 docker compose exec app abst wp plugin list  # …or any WP-CLI command
 docker compose logs -f app
 ```
+
+## AI assistants (MCP)
+
+Add `--mcp` and the server is ready for AI assistants on first boot:
+
+```bash
+./install.sh --domain customer.com --hostname abst.example.com --licence YOUR-KEY --mcp
+```
+
+It installs the [WordPress MCP Adapter](https://github.com/WordPress/mcp-adapter),
+which exposes the plugin's tools (create tests, read results, manage goals and
+audiences...), creates an `abst-mcp` admin user with an application password,
+and prints the config for Claude Code, Claude Desktop, Cursor, Windsurf and
+Cline. Clients connect through `@automattic/mcp-wordpress-remote`, so the
+computer running the AI assistant needs Node.js.
+
+```bash
+docker compose exec app abst mcp           # print the config again
+docker compose exec app abst mcp --reset   # replace the application password
+```
+
+MCP needs HTTPS (`--hostname` or an https `--url`): WordPress only accepts
+application passwords over https. Anyone with the password can manage your
+tests, so treat it like the admin login. Revoke it under Users > abst-mcp >
+Application Passwords.
 
 ## Changing things
 
