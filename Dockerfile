@@ -7,7 +7,15 @@
 #   docker build -t absplittest .
 #
 # Normally you don't build this by hand - install.sh drives docker compose.
-FROM wordpress:6-php8.3-apache
+#
+# The base image supplies PHP and Apache; WordPress itself lives in a volume and
+# updates in place. So the tag names no WordPress major: a tag like
+# wordpress:6-php8.3-apache stops being rebuilt once that major is superseded,
+# and it stuck on PHP 8.3.31 (May 2026), missing the critical PHP security
+# release of 21 Oct 2026 (8.3.36). This tag is rebuilt for every PHP 8.3 patch
+# release, which `install.sh --upgrade` pulls. Move to a newer PHP branch before
+# docker-library stops building 8.3 (its security support ends 31 Dec 2027).
+FROM wordpress:php8.3-apache
 
 # WP-CLI is a single phar; take it from the official CLI image.
 COPY --from=wordpress:cli /usr/local/bin/wp /usr/local/bin/wp
